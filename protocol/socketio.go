@@ -50,26 +50,49 @@ func Encode(msg *Message) (string, error) {
 		return "", err
 	}
 
+	comma := false
+	if msg.Namespace != "" {
+		result += msg.Namespace
+		comma = true
+	}
+
 	if msg.Type == MessageTypeEmpty || msg.Type == MessageTypePing ||
 		msg.Type == MessageTypePong {
 		return result, nil
 	}
 
 	if msg.Type == MessageTypeAckRequest || msg.Type == MessageTypeAckResponse {
+		if comma {
+			result += ","
+			comma = false
+		}
 		result += strconv.Itoa(msg.AckId)
 	}
 
 	if msg.Type == MessageTypeOpen || msg.Type == MessageTypeClose {
+		if comma {
+			result += ","
+			comma = false
+		}
 		return result + msg.Args, nil
 	}
 
 	if msg.Type == MessageTypeAckResponse {
+		if comma {
+			result += ","
+			comma = false
+		}
 		return result + "[" + msg.Args + "]", nil
 	}
 
 	jsonMethod, err := json.Marshal(&msg.Method)
 	if err != nil {
 		return "", err
+	}
+
+	if comma {
+		result += ","
+		comma = false
 	}
 
 	return result + "[" + string(jsonMethod) + "," + msg.Args + "]", nil
@@ -84,43 +107,75 @@ func MustEncode(msg *Message) string {
 	return result
 }
 
-func getMessageType(data string) (int, error) {
+func getMessageType(data string) (t int, restText string, err error) {
+	t = 0
+	restText = data
+	err = nil
 	if len(data) == 0 {
-		return 0, ErrorWrongMessageType
+		err = ErrorWrongMessageType
+		return
 	}
+	restText = data[1:]
 	switch data[0:1] {
 	case open:
-		return MessageTypeOpen, nil
+		return MessageTypeOpen, data[1:], nil
 	case CloseMessage:
-		return MessageTypeClose, nil
+		return MessageTypeClose, data[1:], nil
 	case PingMessage:
-		return MessageTypePing, nil
+		return MessageTypePing, data[1:], nil
 	case PongMessage:
-		return MessageTypePong, nil
+		return MessageTypePong, data[1:], nil
 	case msg:
 		if len(data) == 1 {
-			return 0, ErrorWrongMessageType
+			return 0, "", ErrorWrongMessageType
 		}
+		restText = data[2:]
 		switch data[0:2] {
 		case emptyMessage:
-			return MessageTypeEmpty, nil
+			t = MessageTypeEmpty
+			return
 		case commonMessage:
-			return MessageTypeAckRequest, nil
+			t = MessageTypeAckRequest
+			return
 		case ackMessage:
-			return MessageTypeAckResponse, nil
+			t = MessageTypeAckResponse
+			return
 		}
 	}
-	return 0, ErrorWrongMessageType
+	err = ErrorWrongMessageType
+	return
+}
+
+func getNamespace(text string) (namespace string, restText string) {
+	if len(text) == 0 {
+		return
+	}
+	if text[:1] == "/" {
+		pos := strings.IndexByte(text, ',')
+		if pos == -1 {
+			namespace = text
+			restText = ""
+		} else {
+			namespace = text[:pos]
+			if len(text) > pos + 1 {
+				restText = text[pos + 1:]
+			} else {
+				restText = ""
+			}
+		}
+	} else {
+		restText = text
+	}
+	return
 }
 
 /**
 Get ack id of current packet, if present
 */
 func getAck(text string) (ackId int, restText string, err error) {
-	if len(text) < 4 {
+	if len(text) == 0 {
 		return 0, "", ErrorWrongPacket
 	}
-	text = text[2:]
 
 	pos := strings.IndexByte(text, '[')
 	if pos == -1 {
@@ -175,13 +230,16 @@ func Decode(data string) (*Message, error) {
 	msg := &Message{}
 	msg.Source = data
 
-	msg.Type, err = getMessageType(data)
+	var rest string
+	msg.Type, rest, err = getMessageType(data)
 	if err != nil {
 		return nil, err
 	}
 
+	msg.Namespace, rest = getNamespace(rest)
+
 	if msg.Type == MessageTypeOpen {
-		msg.Args = data[1:]
+		msg.Args = rest
 		return msg, nil
 	}
 
@@ -190,7 +248,7 @@ func Decode(data string) (*Message, error) {
 		return msg, nil
 	}
 
-	ack, rest, err := getAck(data)
+	ack, rest, err := getAck(rest)
 	msg.AckId = ack
 	if msg.Type == MessageTypeAckResponse {
 		if err != nil {

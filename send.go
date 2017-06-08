@@ -54,6 +54,7 @@ func (c *Channel) Emit(method string, args interface{}) error {
 	msg := &protocol.Message{
 		Type:   protocol.MessageTypeEmit,
 		Method: method,
+		Namespace: c.namespace,
 	}
 
 	return send(msg, c, args)
@@ -67,6 +68,7 @@ func (c *Channel) Ack(method string, args interface{}, timeout time.Duration) (s
 		Type:   protocol.MessageTypeAckRequest,
 		AckId:  c.ack.getNextId(),
 		Method: method,
+		Namespace: c.namespace,
 	}
 
 	waiter := make(chan string)
@@ -84,4 +86,13 @@ func (c *Channel) Ack(method string, args interface{}, timeout time.Duration) (s
 		c.ack.removeWaiter(msg.AckId)
 		return "", ErrorSendTimeout
 	}
+}
+
+func (c *Channel) Of(namespace string) error {
+	c.namespace = namespace
+	msg := &protocol.Message{
+		Type:   protocol.MessageTypeEmpty,
+		Namespace: c.namespace,
+	}
+	return send(msg, c, nil)
 }

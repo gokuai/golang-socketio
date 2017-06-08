@@ -41,5 +41,6 @@ type Message struct {
 	Method string
 	Args   string
 	Source string
+	Namespace string
 }
 
